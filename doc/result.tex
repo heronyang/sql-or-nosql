@@ -1,0 +1,128 @@
+\documentclass[letterpaper, 10 pt, conference]{ieeeconf}
+\IEEEoverridecommandlockouts
+\overrideIEEEmargins
+\usepackage{hyperref}
+\usepackage{cite}
+\usepackage{times}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+
+\title{\LARGE \bf
+XIA - Using SQL or NOSQL for Content Chunk Cache
+}
+\author{Heron Yang (heronyang@cmu.edu)
+}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+\pagestyle{empty}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{abstract}
+
+    In this note, we studied properties of MySQL (SQL) and MongoDB (NOSQL) databases that we concern when any of them is applied to the content chunk cache in XIA.
+
+\end{abstract}
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Senerio}
+
+There are 4 different actions will be applied on the table (or collection) we designed.
+
+\subsection{Insert}
+
+This happens whenever there's a new and unseen chunk.
+
+\subsection{Delete}
+
+This happens whenever the record amounts is above the limit. In both MongoDB and MySQL, it's done manually after a new insertion happened.
+
+\subsection{Select (Read)}
+
+This happens whenever anyone requests a certain chunk of data by CID.
+
+\subsection{Update (Write)}
+
+This happens whenever anyone requests a certain chunk of data since the updated\_at timestampe should be updated.
+
+\section{LRU}
+
+Neither MongoDB nor MySQL supports LRU by default. The way to remove the old record is to manually sort and delete. (More studies are needed.)
+
+\section{File in Database}
+
+Most of the materials I found online suggested that storing files in database is a bad practice; however, for our purpose, lots of concerns may not be applied. \cite{file-database}
+
+\subsection{When to store files in the database}
+
+\begin{enumerate}
+    \item ACID: Atomicity, Consistency, Isolation, Durability
+    \item easier to backup
+\end{enumerate}
+
+\subsection{When to store files in the file system}
+
+\begin{enumerate}
+    \item portability (not every databases supports the same file field)
+    \item it's harder to deal with binary file from the database user perspective
+\end{enumerate}
+
+\subsection{Implementation}
+
+{\bf MongoDB} offers GridFS, which chop files into 255k chunks and stores them. {\bf MySQL} offers MEDIUMBLOB field, which stores 16MB data, or LONGBLOB for 4GB data.
+
+\section{Thread Safe}
+
+Accessing from different threads should be critical in our cases since we rarely ``write'' and ``read'' in the same time. Only in the case that one thread is reading, and the other is trying to update the timestamp. In this case, we don't really need to lock the data since it's okay to have race condition on the updated\_at timestamp field.
+
+{\bf MongoDB}: things we will used are all threadsafe (MongoServer, MongoDatabase, MongoCollection and MongoGridFS)\cite{mongo-thread} {\bf MySQL}: use atomic update, use transactions, etc.\cite{mysql-thread}
+
+\section{Experiment}
+
+The testings were focused on MySQL 5.7.15 (SQL) and MongoDB 3.2.0 (NOSQL) on GENI Ubuntu 14.04 VM. Both of the database were configured with followings table (or collection) structure.
+
+\begin{table}[htbp]
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+{\bf CID}     & hashcode in string \\ \hline
+{\bf chunk}   & filepath \\ \hline
+{\bf ttl}     & integer \\ \hline
+{\bf created\_at} & create time \\ \hline
+{\bf updated\_at} & update time \\ \hline
+\end{tabular}
+\end{center}
+\end{table}
+
+
+They were running a same task: {\bf insert 2000 cache data in a single thread, and only keep the top 500 least recently used data.} I got their execution time as below:
+
+\begin{table}[htbp]
+\begin{center}
+\begin{tabular}{|l|l|}
+\hline
+{\bf MySQL}     & 64.20 sec \\ \hline
+{\bf MongoDB}   & 1.87 sec \\ \hline
+\end{tabular}
+\end{center}
+\end{table}
+
+\section{Summary}
+
+MongoDB is faster in our simple test, and could be a good candidate for XIA cache. LRU can be performed manually, and TTL collections are supported by MongoDB by default\cite{ttl}. As our use case is simple and fixed, it's easier to store the data in database first. For the next step, we can move on developing the database APIs and testcases, then, start to bridge the data from XIA Xcache.
+
+\begin{thebibliography}{3}
+    \bibitem{file-database} http://programmers.stackexchange.com/questions/150669/is-it-a-bad-practice-to-store-large-files-10-mb-in-a-database
+    \bibitem{mongo-thread} http://stackoverflow.com/questions/6574515/is-mongodb-thread-safe
+    \bibitem{mysql-thread} http://stackoverflow.com/questions/2364273/how-to-make-sure-there-is-no-race-condition-in-mysql-database-when-incrementing
+\end{thebibliography}
+
+\addtolength{\textheight}{-12cm}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\end{document}
+
